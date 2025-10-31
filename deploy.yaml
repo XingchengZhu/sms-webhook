@@ -45,7 +45,7 @@ metadata:
   name: sms-webhook-service
   namespace: sms-webhook
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
   - port: 80
     targetPort: 8080
