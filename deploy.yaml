@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sms-webhook-deployment
+  namespace: sms-webhook
+  labels:
+    app: sms-webhook
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sms-webhook
+  template:
+    metadata:
+      labels:
+        app: sms-webhook
+    spec:
+      containers:
+      - name: sms-webhook
+        image: your-dockerhub-username/sms-webhook:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SMS_API_URL
+          value: "https://default-sms-api-url.com/send"
+        - name: SMS_CODE
+          value: "ALERT_CODE"
+        - name: SMS_TARGET
+          value: "15222222222"
+        - name: PORT
+          value: "8080"
+        - name: LOG_LEVEL
+          value: "info"
+        resources:
+          requests:
+            memory: "200Mi"
+            cpu: "200m"
+          limits:
+            memory: "1024Mi"
+            cpu: "1000m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sms-webhook-service
+  namespace: sms-webhook
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: sms-webhook
