@@ -1,5 +1,5 @@
 # 使用通用的基础镜像
-FROM golang:1.19-alpine AS builder
+FROM 10.29.230.150:31381/library/golang:1.19-alpine AS builder
 
 # 设置工作目录
 WORKDIR /app
@@ -13,7 +13,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /app/sms-webhook
 
 # 创建最终运行镜像
-FROM alpine:latest
+FROM 10.29.230.150:31381/library/golang:1.19-alpine
 
 # 设置工作目录
 WORKDIR /root/
