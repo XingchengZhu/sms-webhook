@@ -3,37 +3,34 @@ package main
 import (
     "net/http"
 
-    "sms-webhook/config"
-    "sms-webhook/handlers"
-    "sms-webhook/sms"
-
     "github.com/sirupsen/logrus"
+
+    "github.com/XingchengZhu/sms-webhook/config"
+    "github.com/XingchengZhu/sms-webhook/handlers"
+    "github.com/XingchengZhu/sms-webhook/sms"
 )
 
 func main() {
-    cfg := config.LoadConfig()
+    cfg := config.Load()
 
-    logrus.SetLevel(cfg.LogLevel)
-    logrus.SetFormatter(&logrus.JSONFormatter{})
-
-    // 兼容：如果只给了一条 SMS_API_URL，就做成一个默认 sender
-    var fallback sms.Sender
-    if cfg.SMSAPIURL != "" {
-        fallback = sms.NewJSONSender("default", cfg.SMSAPIURL, cfg.SMSCode)
+    log := logrus.New()
+    level, err := logrus.ParseLevel(cfg.LogLevel)
+    if err != nil {
+        level = logrus.InfoLevel
     }
+    log.SetLevel(level)
 
-    manager := sms.NewManager(
-        cfg.SMSProvidersJSON,
-        fallback,
-        cfg.SMSTarget,
-        cfg.SMSSendMode,
-    )
+    sender := sms.NewSender(cfg, log)
 
-    http.HandleFunc("/webhook", handlers.WebhookHandler(cfg, manager))
+    mux := http.NewServeMux()
+    mux.Handle("/webhook", handlers.NewWebhookHandler(sender, cfg, log))
 
-    logrus.WithFields(logrus.Fields{
-        "port": cfg.Port,
-    }).Info("server starting")
+    log.WithFields(logrus.Fields{
+        "port":     cfg.Port,
+        "channels": len(cfg.Channels),
+    }).Info("Starting webhook server")
 
-    logrus.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
+    if err := http.ListenAndServe(":"+cfg.Port, mux); err != nil {
+        log.Fatal(err)
+    }
 }

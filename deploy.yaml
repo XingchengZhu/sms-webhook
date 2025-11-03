@@ -1,3 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sms-webhook
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,7 +11,7 @@ metadata:
   labels:
     app: sms-webhook
 spec:
-  replicas: 1  # 测试先用 1 个
+  replicas: 1
   selector:
     matchLabels:
       app: sms-webhook
@@ -16,61 +21,56 @@ spec:
         app: sms-webhook
     spec:
       containers:
-      - name: sms-webhook
-        image: 10.29.230.150:31381/library/sms-test:20251103-1
-        ports:
-        - containerPort: 8080
-        env:
-        - name: SMS_API_URL
-          value: "http://fake-sms.sms-webhook.svc.cluster.local:9999/sms"
-        - name: SMS_CODE
-          value: "ALERT_CODE"
-        - name: SMS_TARGET
-          value: "15222222222"
-        - name: PORT
-          value: "8080"
-        - name: LOG_LEVEL
-          value: "debug"
-        - name: SMS_SEND_MODE
-          value: "broadcast"
-        - name: SMS_PROVIDERS_JSON
-          value: |
-            [
-              {
-                "name": "json1",
-                "kind": "json",
-                "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/json1",
-                "code": "ALERT_CODE",
-                "target": "15222222222"
-              },
-              {
-                "name": "form1",
-                "kind": "form",
-                "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/form1",
-                "code": "FORM_CODE",
-                "target": "15222222222",
-                "phone_field": "phone",
-                "content_field": "msg",
-                "code_field": "code"
-              },
-              {
-                "name": "header1",
-                "kind": "header-json",
-                "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/header1",
-                "code": "HDR_CODE",
-                "target": "15222222222",
-                "api_key": "abc123",
-                "header_key": "X-API-KEY"
-              }
-            ]
-
-        resources:
-          requests:
-            memory: "200Mi"
-            cpu: "200m"
-          limits:
-            memory: "1024Mi"
-            cpu: "1000m"
+        - name: sms-webhook
+          image: 10.29.230.150:31381/library/sms-test:20251103-1  # ← 用你刚才 push 的
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: SMS_CODE
+              value: "ALERT_CODE"
+            - name: SMS_TARGET
+              value: "15222222222"
+            # 这里一次性把 json / form / header 三种都写进去
+            - name: SMS_CHANNELS
+              value: |-
+                [
+                  {
+                    "name": "json",
+                    "type": "json",
+                    "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/sms",
+                    "method": "POST"
+                  },
+                  {
+                    "name": "form",
+                    "type": "form",
+                    "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/sms",
+                    "method": "POST",
+                    "code_key": "code",
+                    "target_key": "target",
+                    "content_key": "content",
+                    "static": {
+                      "source": "k8s-alert"
+                    }
+                  },
+                  {
+                    "name": "header",
+                    "type": "header",
+                    "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/sms",
+                    "method": "POST",
+                    "headers": {
+                      "X-SMS-FROM": "webhook",
+                      "X-SMS-TYPE": "alert"
+                    }
+                  }
+                ]
+            # 不写渠道的时候默认发这一条，你也可以写成 "json,form,header"
+            - name: DEFAULT_CHANNELS
+              value: "json"
 ---
 apiVersion: v1
 kind: Service
@@ -80,28 +80,20 @@ metadata:
 spec:
   type: NodePort
   ports:
-  - port: 80
-    targetPort: 8080
+    - port: 80
+      targetPort: 8080
+      nodePort: 30127   # 你之前用过 30127，就继续用
   selector:
     app: sms-webhook
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: fake-sms
-  namespace: sms-webhook
-spec:
-  selector:
-    app: fake-sms
-  ports:
-    - port: 9999
-      targetPort: 9999
----
+# 假的短信服务，照你之前的一样
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: fake-sms
   namespace: sms-webhook
+  labels:
+    app: fake-sms
 spec:
   replicas: 1
   selector:
@@ -114,9 +106,21 @@ spec:
     spec:
       containers:
         - name: fake-sms
-          image: 10.29.230.150:31381/library/ealen/echo-server:0.9.2
+          image: ealen/echo-server:0.9.2
           env:
             - name: PORT
               value: "9999"
           ports:
             - containerPort: 9999
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fake-sms
+  namespace: sms-webhook
+spec:
+  selector:
+    app: fake-sms
+  ports:
+    - port: 9999
+      targetPort: 9999
