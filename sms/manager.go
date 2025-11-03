@@ -155,11 +155,34 @@ func (m *Manager) SendDefault(content, target string) {
 	m.SendTo([]string{m.primary}, content, target)
 }
 
+// SendTo：按 names 的顺序发送
+// - broadcast 模式：把 names 里点名的通道都发一遍（与之前一致）
+// - pick 模式：顺序尝试，首个成功（err==nil）就停
 func (m *Manager) SendTo(names []string, content, target string) {
 	tgt := target
 	if tgt == "" {
 		tgt = m.defaultTarget
 	}
+
+	// pick：顺序尝试 + 成功即停
+	if m.sendMode == "pick" {
+		for _, name := range names {
+			s, ok := m.senders[name]
+			if !ok {
+				logrus.WithField("sender", name).Warn("sender not found")
+				continue
+			}
+			if err := s.Send(tgt, content); err != nil {
+				logrus.WithError(err).WithField("sender", name).Warn("pick: send failed, try next")
+				continue
+			}
+			logrus.WithField("sender", name).Info("pick: send succeeded, stop trying others")
+			break
+		}
+		return
+	}
+
+	// broadcast：保持原有逻辑
 	for _, name := range names {
 		s, ok := m.senders[name]
 		if !ok {
