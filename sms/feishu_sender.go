@@ -14,93 +14,107 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// FeishuSender 发送飞书自定义机器人消息（v2 hook + 签名）
+// FeishuSender 通过飞书机器人 Webhook 发送文本消息
+// 说明：开启“签名校验”后，需要在请求体携带 timestamp 与 sign
+// sign = Base64( HMAC-SHA256( secret, timestamp + "\n" + secret ) )
 type FeishuSender struct {
-	name       string
-	webhookURL string
-	secret     string
-	client     *http.Client
+	name      string
+	webhook   string
+	secret    string
+	httpc     *http.Client
+	userAgent string
 }
 
-func NewFeishuSender(name, webhookURL, secret string) Sender {
-	if webhookURL == "" || secret == "" {
-		logrus.WithFields(logrus.Fields{
-			"name":   name,
-			"hasURL": webhookURL != "",
-			"hasSec": secret != "",
-		}).Warn("feishu sender init skipped: missing url or secret")
-		return nil
-	}
+func NewFeishuSender(name, webhook, secret string) *FeishuSender {
 	if name == "" {
 		name = "feishu"
 	}
 	return &FeishuSender{
-		name:       name,
-		webhookURL: webhookURL,
-		secret:     secret,
-		client:     &http.Client{Timeout: 8 * time.Second},
+		name:      name,
+		webhook:   webhook,
+		secret:    secret,
+		httpc:     &http.Client{Timeout: 8 * time.Second},
+		userAgent: "sms-webhook/feishu-sender",
 	}
 }
 
 func (s *FeishuSender) Name() string { return s.name }
 
-func (s *FeishuSender) Send(target, content string) error {
-	ts := fmt.Sprintf("%d", time.Now().Unix())
-	sign := s.sign(ts)
-
-	// 把 target 也拼到文本里，便于审计（飞书机器人本身不需要手机号）
-	text := content
-	if target != "" {
-		text = fmt.Sprintf("%s\n(target: %s)", content, target)
+// Send 忽略 target，只使用 content
+func (s *FeishuSender) Send(_ string, content string) error {
+	if s.webhook == "" {
+		return fmt.Errorf("feishu webhook is empty")
 	}
 
-	payload := map[string]any{
-		"timestamp": ts,
-		"sign":      sign,
-		"msg_type":  "text",
+	ts := fmt.Sprintf("%d", time.Now().Unix())
+	sign := ""
+	if s.secret != "" {
+		sign = signFeishu(ts, s.secret)
+	}
+
+	// 飞书 text 消息体
+	body := map[string]any{
+		"msg_type": "text",
 		"content": map[string]string{
-			"text": text,
+			"text": content,
 		},
 	}
-	bs, _ := json.Marshal(payload)
+	// 若开启签名校验，需要同时传 timestamp 与 sign
+	if s.secret != "" {
+		body["timestamp"] = ts
+		body["sign"] = sign
+	}
 
-	req, _ := http.NewRequest("POST", s.webhookURL, bytes.NewReader(bs))
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, s.webhook, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", s.userAgent)
 
-	resp, err := s.client.Do(req)
+	resp, err := s.httpc.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	rb, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("feishu http %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("feishu http %d: %s", resp.StatusCode, string(rb))
 	}
 
-	// 飞书机器人成功通常 200 + {"StatusCode":0,"StatusMessage":"success"} 或 {"code":0,"msg":"ok"}
-	var r map[string]any
-	if err := json.Unmarshal(body, &r); err == nil {
-		if code, ok := r["StatusCode"]; ok {
-			if iv, isNum := code.(float64); isNum && iv != 0 {
-				return fmt.Errorf("feishu response not ok: %v", r)
-			}
-		}
-		if code, ok := r["code"]; ok {
-			if iv, isNum := code.(float64); isNum && iv != 0 {
-				return fmt.Errorf("feishu response not ok: %v", r)
-			}
-		}
+	// 飞书返回通常包含 code/statusCode == 0 表示成功
+	var r struct {
+		Code        *int   `json:"code"`
+		Msg         string `json:"msg"`
+		StatusCode  *int   `json:"StatusCode"`
+		StatusMsg   string `json:"StatusMessage"`
+		Extra       any    `json:"Extra"`
 	}
+	_ = json.Unmarshal(rb, &r)
+	ok := false
+	if r.Code != nil && *r.Code == 0 {
+		ok = true
+	}
+	if r.StatusCode != nil && *r.StatusCode == 0 {
+		ok = true
+	}
+	logrus.WithFields(logrus.Fields{
+		"sender": s.name,
+		"resp":   string(rb),
+		"url":    s.webhook,
+	}).Info("feishu response")
 
-	logrus.WithField("sender", s.name).Info("feishu message sent")
+	if !ok {
+		return fmt.Errorf("feishu response not ok: %s", string(rb))
+	}
 	return nil
 }
 
-// 飞书签名：Base64( HMAC-SHA256( timestamp + "\n" + secret , key=secret ) )
-func (s *FeishuSender) sign(ts string) string {
-	data := ts + "\n" + s.secret
-	mac := hmac.New(sha256.New, []byte(s.secret))
-	_, _ = mac.Write([]byte(data))
+func signFeishu(ts, secret string) string {
+	// sign = Base64(HMAC-SHA256(secret, ts+"\n"+secret))
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(ts + "\n" + secret))
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }

@@ -13,12 +13,12 @@ type ProviderConfig struct {
 	URL          string `json:"url"`
 	Code         string `json:"code"`
 	Target       string `json:"target"`
-	APIKey       string `json:"api_key"`   // 兼容旧字段
+	APIKey       string `json:"api_key"`
 	HeaderKey    string `json:"header_key"`
 	PhoneField   string `json:"phone_field"`
 	ContentField string `json:"content_field"`
 	CodeField    string `json:"code_field"`
-	Secret       string `json:"secret"` // 新增：飞书签名用
+	Secret       string `json:"secret"` // feishu 签名用
 }
 
 // Manager 管一堆 sender
@@ -104,12 +104,10 @@ func buildSenderFromConfig(c ProviderConfig) Sender {
 			firstNonEmpty(c.HeaderKey, "X-API-KEY"),
 		)
 	case "feishu":
-		// 飞书签名 secret 可用新字段 secret；兼容 api_key
-		secret := firstNonEmpty(c.Secret, c.APIKey)
 		return NewFeishuSender(
-			firstNonEmpty(c.Name, "feishu"),
+			c.Name,
 			c.URL,
-			secret,
+			c.Secret,
 		)
 	case "json", "":
 		fallthrough
@@ -164,15 +162,15 @@ func (m *Manager) SendDefault(content, target string) {
 	m.SendTo([]string{m.primary}, content, target)
 }
 
+// SendTo：names 按顺序尝试，pick 模式下首个成功即停；失败才继续。
+// broadcast 模式下，显式点名时仍全部尝试（与你之前行为一致）。
 func (m *Manager) SendTo(names []string, content, target string) {
 	tgt := target
 	if tgt == "" {
 		tgt = m.defaultTarget
 	}
 
-	sentOK := false
-
-	for _, name := range names {
+	for idx, name := range names {
 		s, ok := m.senders[name]
 		if !ok {
 			logrus.WithField("sender", name).Warn("sender not found")
@@ -180,18 +178,16 @@ func (m *Manager) SendTo(names []string, content, target string) {
 		}
 		if err := s.Send(tgt, content); err != nil {
 			logrus.WithError(err).WithField("sender", name).Error("send failed")
+			// 失败：在 pick 模式下尝试下一个；在 broadcast 下也会继续（发剩余渠道）
 			continue
 		}
-		// 成功一次
-		sentOK = true
+		// 成功
 		if m.sendMode == "pick" {
-			// 首个成功就停
+			// pick：首个成功即停
 			return
 		}
-	}
-
-	if !sentOK && m.sendMode == "pick" {
-		logrus.Warn("no sender succeeded in pick mode")
+		// broadcast：若显式点名，保持“都发”的行为（不提前返回）
+		_ = idx
 	}
 }
 
