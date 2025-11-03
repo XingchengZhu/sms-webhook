@@ -13,11 +13,21 @@ import (
 )
 
 type JSONSender struct {
-    URL  string
-    Code string
-    // 也可以再加别的固定字段
+    name   string
+    URL    string
+    Code   string
     Client *http.Client
 }
+
+func NewJSONSender(name, url, code string) *JSONSender {
+    return &JSONSender{
+        name: name,
+        URL:  url,
+        Code: code,
+    }
+}
+
+func (s *JSONSender) Name() string { return s.name }
 
 type jsonPayload struct {
     Code    string `json:"code"`
@@ -51,16 +61,16 @@ func (s *JSONSender) Send(target, content string) error {
         return err
     }
     defer resp.Body.Close()
-
-    respBody, _ := io.ReadAll(resp.Body)
+    b, _ := io.ReadAll(resp.Body)
 
     logrus.WithFields(logrus.Fields{
+        "sender": s.name,
         "status": resp.StatusCode,
-        "resp":   string(respBody),
+        "resp":   string(b),
     }).Info("json sms response")
 
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-        return fmt.Errorf("json sms: unexpected status %d", resp.StatusCode)
+        return fmt.Errorf("json sms: bad status %d", resp.StatusCode)
     }
     return nil
 }

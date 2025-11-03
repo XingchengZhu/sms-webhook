@@ -7,26 +7,29 @@ import (
 )
 
 type Config struct {
+    Port         string
+    LogLevel     logrus.Level
+
+    // 老的单通道配置（保持兼容）
     SMSAPIURL    string
     SMSCode      string
     SMSTarget    string
-    Port         string
-    LogLevel     logrus.Level
-    SMSProvider  string // json | form | header-json
-    SMSAPIKey    string // for header-json
-    SMSHeaderKey string // for header-json
+
+    // 新的多通道配置（可选）
+    SMSProvidersJSON string // JSON 字符串，数组
+    // 发送模式：broadcast | pick | both
+    SMSSendMode      string
 }
 
 func LoadConfig() Config {
     return Config{
-        SMSAPIURL:    getEnv("SMS_API_URL", "http://fake-sms.sms-webhook.svc.cluster.local:9999/sms"),
-        SMSCode:      getEnv("SMS_CODE", "ALERT_CODE"),
-        SMSTarget:    getEnv("SMS_TARGET", "15222222222"),
-        Port:         getEnv("PORT", "8080"),
-        LogLevel:     getLogLevel(getEnv("LOG_LEVEL", "info")),
-        SMSProvider:  getEnv("SMS_PROVIDER", "json"),
-        SMSAPIKey:    getEnv("SMS_API_KEY", ""),
-        SMSHeaderKey: getEnv("SMS_HEADER_KEY", "X-API-KEY"),
+        Port:             getEnv("PORT", "8080"),
+        LogLevel:         getLogLevel(getEnv("LOG_LEVEL", "info")),
+        SMSAPIURL:        getEnv("SMS_API_URL", ""),
+        SMSCode:          getEnv("SMS_CODE", ""),
+        SMSTarget:        getEnv("SMS_TARGET", ""),
+        SMSProvidersJSON: getEnv("SMS_PROVIDERS_JSON", ""),   // 新的
+        SMSSendMode:      getEnv("SMS_SEND_MODE", "broadcast"),
     }
 }
 

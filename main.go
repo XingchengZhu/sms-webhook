@@ -1,8 +1,8 @@
-// main.go
 package main
 
 import (
     "net/http"
+
     "sms-webhook/config"
     "sms-webhook/handlers"
     "sms-webhook/sms"
@@ -16,41 +16,24 @@ func main() {
     logrus.SetLevel(cfg.LogLevel)
     logrus.SetFormatter(&logrus.JSONFormatter{})
 
-    // 根据配置创建一个 sender
-    sender := buildSender(cfg)
+    // fallback：为了兼容你现在“只有一条短信配置”的情况
+    var fallback sms.Sender
+    if cfg.SMSAPIURL != "" {
+        fallback = sms.NewJSONSender("default", cfg.SMSAPIURL, cfg.SMSCode)
+    }
 
-    http.HandleFunc("/webhook", handlers.WebhookHandler(cfg, sender))
+    manager := sms.NewManager(
+        cfg.SMSProvidersJSON, // 多通道 JSON
+        fallback,             // 没有多通道时就用单通道
+        cfg.SMSTarget,
+        cfg.SMSSendMode,
+    )
+
+    http.HandleFunc("/webhook", handlers.WebhookHandler(cfg, manager))
 
     logrus.WithFields(logrus.Fields{
-        "port":      cfg.Port,
-        "provider":  cfg.SMSProvider,
-        "sms_api":   cfg.SMSAPIURL,
-    }).Info("Starting webhook server")
+        "port": cfg.Port,
+    }).Info("server starting")
 
     logrus.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
-}
-
-func buildSender(cfg config.Config) sms.Sender {
-    switch cfg.SMSProvider {
-    case "form":
-        return &sms.FormSender{
-            URL:          cfg.SMSAPIURL,
-            CodeField:    "code",
-            PhoneField:   "target",
-            ContentField: "content",
-            CodeValue:    cfg.SMSCode,
-        }
-    case "header-json":
-        return &sms.HeaderJSONSender{
-            URL:       cfg.SMSAPIURL,
-            Code:      cfg.SMSCode,
-            APIKey:    cfg.SMSAPIKey,
-            HeaderKey: cfg.SMSHeaderKey,
-        }
-    default: // "json"
-        return &sms.JSONSender{
-            URL:  cfg.SMSAPIURL,
-            Code: cfg.SMSCode,
-        }
-    }
 }
