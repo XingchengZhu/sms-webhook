@@ -1,4 +1,3 @@
-// sms/form_sender.go
 package sms
 
 import (
@@ -6,18 +5,19 @@ import (
     "io"
     "net/http"
     "net/url"
+    "strings"      // ← 你漏掉的
     "time"
 
     "github.com/sirupsen/logrus"
 )
 
 type FormSender struct {
-    URL       string
-    CodeField string // 比如 "code"
-    PhoneField string // 比如 "phone" or "target"
-    ContentField string // 比如 "msg" or "content"
-    CodeValue string
-    Client    *http.Client
+    URL          string
+    CodeField    string
+    PhoneField   string
+    ContentField string
+    CodeValue    string
+    Client       *http.Client
 }
 
 func (s *FormSender) Send(target, content string) error {
@@ -44,8 +44,8 @@ func (s *FormSender) Send(target, content string) error {
         return err
     }
     defer resp.Body.Close()
-    b, _ := io.ReadAll(resp.Body)
 
+    b, _ := io.ReadAll(resp.Body)
     logrus.WithFields(logrus.Fields{
         "status": resp.StatusCode,
         "resp":   string(b),

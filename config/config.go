@@ -1,4 +1,3 @@
-// config/config.go
 package config
 
 import (
@@ -8,14 +7,13 @@ import (
 )
 
 type Config struct {
-    SMSAPIURL   string
-    SMSCode     string
-    SMSTarget   string
-    Port        string
-    LogLevel    logrus.Level
-
-    SMSProvider string // json | form | header-json
-    SMSAPIKey   string // for header-json
+    SMSAPIURL    string
+    SMSCode      string
+    SMSTarget    string
+    Port         string
+    LogLevel     logrus.Level
+    SMSProvider  string // json | form | header-json
+    SMSAPIKey    string // for header-json
     SMSHeaderKey string // for header-json
 }
 
@@ -32,19 +30,17 @@ func LoadConfig() Config {
     }
 }
 
+func getEnv(key, def string) string {
+    if v := os.Getenv(key); v != "" {
+        return v
+    }
+    return def
+}
 
-// func getEnv(key, defaultValue string) string {
-// 	value := os.Getenv(key)
-// 	if value == "" {
-// 		return defaultValue
-// 	}
-// 	return value
-// }
-
-// func getLogLevel(level string) logrus.Level {
-// 	lvl, err := logrus.ParseLevel(level)
-// 	if err != nil {
-// 		return logrus.InfoLevel
-// 	}
-// 	return lvl
-// }
+func getLogLevel(level string) logrus.Level {
+    lvl, err := logrus.ParseLevel(level)
+    if err != nil {
+        return logrus.InfoLevel
+    }
+    return lvl
+}

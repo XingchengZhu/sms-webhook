@@ -4,6 +4,9 @@ FROM 10.29.230.150:31381/library/golang:1.19-alpine AS builder
 # 设置工作目录
 WORKDIR /app
 
+ENV GOPROXY=https://goproxy.cn,direct
+
+
 # 拷贝 go.mod 和 go.sum 并下载依赖
 COPY go.mod go.sum ./
 RUN go mod download
