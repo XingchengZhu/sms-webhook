@@ -47,6 +47,13 @@ spec:
           value: |-
             [
               {
+                "name": "feishu",
+                "kind": "feishu",
+                "url": "https://open.feishu.cn/open-apis/bot/v2/hook/d46d8ce4-e298-4894-b5da-37ad2613104c",
+                "secret": "T1dgjnnwepkB2JrlhawRke",
+                "msg_type": "text"
+              },
+              {
                 "name": "json",
                 "kind": "json",
                 "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/json",
