@@ -1,62 +1,57 @@
+// handlers/webhook.go
 package handlers
 
 import (
-	"io"
-	"net/http"
-	"sms-webhook/config"
-	"sms-webhook/utils"
-	"strings"
+    "io"
+    "net/http"
+    "strings"
 
-	"github.com/sirupsen/logrus"
+    "sms-webhook/config"
+    "sms-webhook/sms"
+
+    "github.com/sirupsen/logrus"
 )
 
-func WebhookHandler(cfg config.Config) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to read request body")
-			http.Error(w, "Failed to read request body", http.StatusInternalServerError)
-			return
-		}
+func WebhookHandler(cfg config.Config, sender sms.Sender) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost {
+            http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
 
-		logrus.WithField("body", string(body)).Debug("Received raw request body")
+        body, err := io.ReadAll(r.Body)
+        if err != nil {
+            http.Error(w, "read body error", http.StatusInternalServerError)
+            return
+        }
+        defer r.Body.Close()
 
-		// 简单的字符串解析器，根据预期格式提取信息
-		alerts := strings.Split(string(body), "\n\n") // 假设不同的告警之间用两个换行符分隔
+        logrus.WithField("body", string(body)).Debug("received webhook")
 
-		for _, alertText := range alerts {
-			alertLines := strings.Split(alertText, "\n")
-			summary := ""
-			for _, line := range alertLines {
-				if strings.HasPrefix(line, "描述: ") {
-					summary = strings.TrimPrefix(line, "描述: ")
-					break
-				}
-			}
+        // 还是按你之前的“描述: ”来
+        alerts := strings.Split(string(body), "\n\n")
+        for _, alertText := range alerts {
+            lines := strings.Split(alertText, "\n")
+            summary := ""
+            for _, line := range lines {
+                if strings.HasPrefix(line, "描述: ") {
+                    summary = strings.TrimPrefix(line, "描述: ")
+                    break
+                }
+            }
+            if summary == "" {
+                summary = "No summary provided"
+            }
 
-			if summary == "" {
-				summary = "No summary provided"
-			}
+            // 这里不用关心是哪种短信接口了
+            if err := sender.Send(cfg.SMSTarget, summary); err != nil {
+                logrus.WithError(err).Error("send sms failed")
+                http.Error(w, "Failed to send SMS", http.StatusBadGateway)
+                return
+            }
+        }
 
-			sms := utils.SMSRequest{
-				Code:    cfg.SMSCode,
-				Target:  cfg.SMSTarget,
-				Content: summary,
-			}
-
-			logrus.WithFields(logrus.Fields{
-				"content": sms.Content,
-			}).Info("Sending SMS")
-
-			err := utils.SendSMS(cfg, sms)
-			if err != nil {
-				logrus.WithError(err).Error("Failed to send SMS")
-				http.Error(w, "Failed to send SMS", http.StatusInternalServerError)
-				return
-			}
-		}
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Alert received and SMS sent"))
-	}
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte("ok"))
+    }
 }
