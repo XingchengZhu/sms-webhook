@@ -1,24 +1,24 @@
+// handlers/webhook.go（覆盖）
 package handlers
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 
-	"github.com/sirupsen/logrus"
+	"sms-webhook/config"
+	"sms-webhook/sms"
 
-	"github.com/XingchengZhu/sms-webhook/config"
-	"github.com/XingchengZhu/sms-webhook/sms"
+	"github.com/sirupsen/logrus"
 )
 
-// /webhook 的入口
-func WebhookHandler(cfg config.Config, mgr *sms.Manager) http.HandlerFunc {
+func WebhookHandler(cfg config.Config, sender sms.Sender) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "read body error", http.StatusInternalServerError)
@@ -26,49 +26,75 @@ func WebhookHandler(cfg config.Config, mgr *sms.Manager) http.HandlerFunc {
 		}
 		defer r.Body.Close()
 
-		raw := string(body)
-		logrus.WithField("body", raw).Debug("received webhook")
+		logrus.WithFields(logrus.Fields{
+			"ct":   r.Header.Get("Content-Type"),
+			"body": string(body),
+		}).Debug("received webhook")
 
-		// 支持一次发多段：用空行分开
-		chunks := strings.Split(raw, "\n\n")
-		for _, chunk := range chunks {
-			chunk = strings.TrimSpace(chunk)
-			if chunk == "" {
-				continue
+		ct := r.Header.Get("Content-Type")
+		var msgs []string
+
+		if strings.HasPrefix(ct, "application/json") {
+			// 兼容 Alertmanager JSON
+			if m := extractFromAlertmanagerJSON(body); len(m) > 0 {
+				msgs = m
 			}
-
-			// 1. 取描述
-			desc := parseDescription(chunk)
-			if desc == "" {
-				desc = "No summary provided"
-			}
-
-			// 2. 看有没有写渠道
-			channels := sms.ParseChannels(chunk)
-
-			if len(channels) > 0 {
-				// 显式点名渠道
-				mgr.SendTo(channels, desc, cfg.SMSTarget)
-			} else {
-				// 没点名 → 用当前模式（默认 pick，只发一条）
-				mgr.SendDefault(desc, cfg.SMSTarget)
-			}
-
-			logrus.WithField("content", desc).Info("SMS processed")
 		}
 
+		if len(msgs) == 0 {
+			// 回退到“查找 描述: ”模式（与你现在一致）
+			alerts := strings.Split(string(body), "\n\n")
+			for _, alertText := range alerts {
+				lines := strings.Split(alertText, "\n")
+				summary := ""
+				for _, line := range lines {
+					if strings.HasPrefix(line, "描述: ") {
+						summary = strings.TrimPrefix(line, "描述: ")
+						break
+					}
+				}
+				if summary == "" {
+					summary = "No summary provided"
+				}
+				msgs = append(msgs, summary)
+			}
+		}
+
+		for _, m := range msgs {
+			if err := sender.Send(cfg.SMSTarget, m); err != nil {
+				logrus.WithError(err).Error("send failed")
+				http.Error(w, "Failed to send", http.StatusBadGateway)
+				return
+			}
+		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Alert received and SMS sent"))
+		_, _ = w.Write([]byte("ok"))
 	}
 }
 
-func parseDescription(s string) string {
-	lines := strings.Split(s, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "描述:") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "描述:"))
-		}
+func extractFromAlertmanagerJSON(body []byte) []string {
+	var p struct {
+		Status string `json:"status"`
+		Alerts []struct {
+			Status      string            `json:"status"`
+			Labels      map[string]string `json:"labels"`
+			Annotations map[string]string `json:"annotations"`
+		} `json:"alerts"`
 	}
-	return ""
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil
+	}
+	var out []string
+	for _, a := range p.Alerts {
+		s := a.Annotations["summary"]
+		if s == "" {
+			s = a.Annotations["description"]
+		}
+		if s == "" {
+			// 兜底拼装
+			s = "[" + a.Labels["alertname"] + "] " + a.Labels["severity"] + " " + a.Labels["instance"]
+		}
+		out = append(out, s)
+	}
+	return out
 }

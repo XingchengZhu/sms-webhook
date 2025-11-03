@@ -1,67 +1,87 @@
+// main.go（只展示 buildSender 的更新部分）
 package main
 
 import (
 	"net/http"
 
-	"github.com/sirupsen/logrus"
+	"sms-webhook/config"
+	"sms-webhook/handlers"
+	"sms-webhook/sms"
 
-	"github.com/XingchengZhu/sms-webhook/config"
-	"github.com/XingchengZhu/sms-webhook/handlers"
-	"github.com/XingchengZhu/sms-webhook/sms"
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
 	cfg := config.LoadConfig()
-
-	logrus.SetFormatter(&logrus.JSONFormatter{})
 	logrus.SetLevel(cfg.LogLevel)
+	logrus.SetFormatter(&logrus.JSONFormatter{})
 
-	// 老的单通道兜底 sender（如果后面没配 SMS_PROVIDERS_JSON，就用这个）
-	fallback := buildFallbackSender(cfg)
+	sender := buildSender(cfg)
 
-	// 多通道 manager：默认模式是 pick，只发一条
-	mgr := sms.NewManager(
-		cfg.SMSProvidersJSON,
-		fallback,
-		cfg.SMSTarget,
-		cfg.SMSSendMode,
-	)
-
-	http.HandleFunc("/webhook", handlers.WebhookHandler(cfg, mgr))
-
+	http.HandleFunc("/webhook", handlers.WebhookHandler(cfg, sender))
 	logrus.WithFields(logrus.Fields{
 		"port":     cfg.Port,
-		"mode":     cfg.SMSSendMode,
-		"sms_api":  cfg.SMSAPIURL,
+		"provider": cfg.SMSProvider,
 	}).Info("Starting webhook server")
-
 	logrus.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
 }
 
-func buildFallbackSender(cfg config.Config) sms.Sender {
+func buildSender(cfg config.Config) sms.Sender {
+	// 组合策略
 	switch cfg.SMSProvider {
+	case "broadcast":
+		return &sms.MultiSender{Senders: buildMany(cfg, cfg.SMSProviders), Mode: "broadcast"}
+	case "pick":
+		return &sms.MultiSender{Senders: buildMany(cfg, cfg.SMSProviders), Mode: "pick"}
+	}
+
+	// 单路
+	return buildOne(cfg, cfg.SMSProvider)
+}
+
+func buildMany(cfg config.Config, names []string) []sms.Sender {
+	out := make([]sms.Sender, 0, len(names))
+	for _, n := range names {
+		if s := buildOne(cfg, n); s != nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func buildOne(cfg config.Config, name string) sms.Sender {
+	switch name {
 	case "form":
-		return sms.NewFormSender(
-			"default",
-			cfg.SMSAPIURL,
-			"code",
-			"target",
-			"content",
-			cfg.SMSCode,
-		)
+		return &sms.FormSender{
+			URL:          cfg.SMSAPIURL,
+			CodeField:    "code",
+			PhoneField:   "target",
+			ContentField: "content",
+			CodeValue:    cfg.SMSCode,
+		}
 	case "header-json":
-		return sms.NewHeaderJSONSender(
-			"default",
-			cfg.SMSAPIURL,
-			cfg.SMSCode,
-			cfg.SMSAPIKey,
-			cfg.SMSHeaderKey,
-		)
-	default: // json
-		return sms.NewJSONSender(
-			"default",
-			cfg.SMSAPIURL,
-			cfg.SMSCode,
-		)
+		return &sms.HeaderJSONSender{
+			URL:       cfg.SMSAPIURL,
+			Code:      cfg.SMSCode,
+			APIKey:    cfg.SMSAPIKey,
+			HeaderKey: cfg.SMSHeaderKey,
+		}
+	case "feishu-webhook":
+		return &sms.FeishuWebhookSender{
+			WebhookURL: cfg.FeishuWebhook,
+			Secret:     cfg.FeishuSecret,
+		}
+	case "feishu-api":
+		return &sms.FeishuAPISender{
+			AppID:          cfg.FeishuAppID,
+			AppSecret:      cfg.FeishuAppSecret,
+			ReceiveIDType:  cfg.FeishuReceiveIDType,
+			ReceiveID:      cfg.FeishuReceiveID,
+		}
+	default: // "json"
+		return &sms.JSONSender{
+			URL:  cfg.SMSAPIURL,
+			Code: cfg.SMSCode,
+		}
 	}
 }
