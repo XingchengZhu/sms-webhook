@@ -26,6 +26,7 @@ type Manager struct {
     senders       map[string]Sender
     defaultTarget string
     sendMode      string
+    primary       string // pick 模式下用谁
 }
 
 func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string) *Manager {
@@ -35,7 +36,7 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
         sendMode:      sendMode,
     }
 
-    // 1) 解析多通道 JSON
+    // 1) 多通道 JSON
     if jsonStr != "" {
         var cfgs []ProviderConfig
         if err := json.Unmarshal([]byte(jsonStr), &cfgs); err != nil {
@@ -50,15 +51,31 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
         }
     }
 
-    // 2) 完全没配多通道，就用老的单通道
+    // 2) 完全没配多通道，用老的单通道兜底
     if len(m.senders) == 0 && fallback != nil {
         m.senders[fallback.Name()] = fallback
+    }
+
+    // 3) 决定 pick 模式下的 primary
+    m.primary = ""
+    if len(m.senders) > 0 {
+        // 优先用名字叫 default 的
+        if _, ok := m.senders["default"]; ok {
+            m.primary = "default"
+        } else {
+            // 否则就用第一个
+            for name := range m.senders {
+                m.primary = name
+                break
+            }
+        }
     }
 
     logrus.WithFields(logrus.Fields{
         "senders": m.list(),
         "mode":    m.sendMode,
-    }).Info("sms manager initialized")
+        "primary": m.primary,
+    }).Info("sms manager inited")
 
     return m
 }
@@ -89,10 +106,10 @@ func buildSenderFromConfig(c ProviderConfig) Sender {
     }
 }
 
-func firstNonEmpty(xs ...string) string {
-    for _, x := range xs {
-        if x != "" {
-            return x
+func firstNonEmpty(vals ...string) string {
+    for _, v := range vals {
+        if v != "" {
+            return v
         }
     }
     return ""
@@ -100,8 +117,8 @@ func firstNonEmpty(xs ...string) string {
 
 func (m *Manager) list() []string {
     out := make([]string, 0, len(m.senders))
-    for name := range m.senders {
-        out = append(out, name)
+    for k := range m.senders {
+        out = append(out, k)
     }
     return out
 }
@@ -113,9 +130,26 @@ func (m *Manager) SendBroadcast(content, target string) {
     }
     for name, s := range m.senders {
         if err := s.Send(tgt, content); err != nil {
-            logrus.WithError(err).WithField("sender", name).Error("broadcast sms failed")
+            logrus.WithError(err).WithField("sender", name).Error("broadcast failed")
         }
     }
+}
+
+// 新的：根据当前模式发送（给 handler 用）
+// pick: 发 primary
+// broadcast: 全发
+func (m *Manager) SendDefault(content, target string) {
+    if m.sendMode == "broadcast" {
+        m.SendBroadcast(content, target)
+        return
+    }
+
+    // pick 模式
+    if m.primary == "" {
+        logrus.Warn("no primary sender to send default sms")
+        return
+    }
+    m.SendTo([]string{m.primary}, content, target)
 }
 
 func (m *Manager) SendTo(names []string, content, target string) {
@@ -130,12 +164,12 @@ func (m *Manager) SendTo(names []string, content, target string) {
             continue
         }
         if err := s.Send(tgt, content); err != nil {
-            logrus.WithError(err).WithField("sender", name).Error("send sms failed")
+            logrus.WithError(err).WithField("sender", name).Error("send failed")
         }
     }
 }
 
-// 从告警文本里解析 “渠道: xxx,yyy”
+// 从告警文本里解析渠道: xxx,yyy
 func ParseChannels(alertText string) []string {
     lines := strings.Split(alertText, "\n")
     for _, line := range lines {
@@ -143,14 +177,14 @@ func ParseChannels(alertText string) []string {
         if strings.HasPrefix(line, "渠道:") || strings.HasPrefix(line, "channel:") {
             v := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "渠道:"), "channel:"))
             parts := strings.Split(v, ",")
-            res := make([]string, 0, len(parts))
+            out := make([]string, 0, len(parts))
             for _, p := range parts {
                 p = strings.TrimSpace(p)
                 if p != "" {
-                    res = append(res, p)
+                    out = append(out, p)
                 }
             }
-            return res
+            return out
         }
     }
     return nil
