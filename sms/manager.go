@@ -18,6 +18,9 @@ type ProviderConfig struct {
 	PhoneField   string `json:"phone_field"`
 	ContentField string `json:"content_field"`
 	CodeField    string `json:"code_field"`
+	// 新增（飞书）
+    Secret     string `json:"secret"`
+    MsgType    string `json:"msg_type"` // 可选："text"（默认）、"post"等
 }
 
 // Manager 管一堆 sender
@@ -84,16 +87,13 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
 }
 
 func buildSenderFromConfig(c ProviderConfig) Sender {
-	switch c.Kind {
-	case "form":
-		return NewFormSender(
-			c.Name,
-			c.URL,
-			firstNonEmpty(c.CodeField, "code"),
-			firstNonEmpty(c.PhoneField, "target"),
-			firstNonEmpty(c.ContentField, "content"),
-			c.Code,
-		)
+	switch strings.ToLower(c.Kind) {
+    case "feishu", "feishu-webhook", "lark":
+        s := NewFeishuSender(c.Name, c.URL, c.Secret)
+        if c.MsgType != "" {
+            s.MsgType = c.MsgType
+        }
+        return s
 	case "header-json":
 		return NewHeaderJSONSender(
 			c.Name,
