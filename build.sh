@@ -1,5 +1,5 @@
 #!/bin/bash 
-docker build 10.29.230.150:31381/library/sms-test:20251103 .
+docker build -t 10.29.230.150:31381/library/sms-test:20251103 .
 docker push 10.29.230.150:31381/library/sms-test:20251103
 
 
