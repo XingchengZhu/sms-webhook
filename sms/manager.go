@@ -126,7 +126,7 @@ func (m *Manager) list() []string {
 	return out
 }
 
-// 广播所有
+// 广播所有（全量广播）
 func (m *Manager) SendBroadcast(content, target string) {
 	tgt := target
 	if tgt == "" {
@@ -155,16 +155,15 @@ func (m *Manager) SendDefault(content, target string) {
 	m.SendTo([]string{m.primary}, content, target)
 }
 
-// SendTo：按 names 顺序发送
-// - broadcast 模式：对点名通道全部发送
-// - pick 模式：按顺序尝试，首个成功即停
+// SendTo: 对指定 names 发送
+// - broadcast: 给 names 里所有 sender 都发
+// - pick:      按 names 顺序逐个尝试，首个成功就停
 func (m *Manager) SendTo(names []string, content, target string) {
 	tgt := target
 	if tgt == "" {
 		tgt = m.defaultTarget
 	}
 
-	// 广播：全部尝试，不因成功而停止
 	if m.sendMode == "broadcast" {
 		for _, name := range names {
 			s, ok := m.senders[name]
@@ -179,43 +178,24 @@ func (m *Manager) SendTo(names []string, content, target string) {
 		return
 	}
 
-	// pick：顺序尝试，首个成功就停
-	var lastErr error
-	for i, name := range names {
+	// pick 模式：逐个尝试，成功即停
+	var okOnce bool
+	for _, name := range names {
 		s, ok := m.senders[name]
 		if !ok {
-			logrus.WithFields(logrus.Fields{
-				"sender": name,
-				"mode":   "pick",
-				"try":    i + 1,
-			}).Warn("sender not found, skip")
+			logrus.WithField("sender", name).Warn("sender not found")
 			continue
 		}
-
 		if err := s.Send(tgt, content); err != nil {
-			lastErr = err
-			logrus.WithError(err).WithFields(logrus.Fields{
-				"sender": name,
-				"mode":   "pick",
-				"try":    i + 1,
-			}).Warn("pick: send failed, try next")
+			logrus.WithError(err).WithField("sender", name).Error("send failed, try next")
 			continue
 		}
-
-		// 成功：停止后续尝试
-		logrus.WithFields(logrus.Fields{
-			"sender": name,
-			"mode":   "pick",
-			"try":    i + 1,
-		}).Info("pick: send succeeded, stop trying others")
-		return
+		logrus.WithField("sender", name).Info("pick mode: first success, stop")
+		okOnce = true
+		break
 	}
-
-	// 全部失败或无有效 sender
-	if lastErr != nil {
-		logrus.WithError(lastErr).WithField("mode", "pick").Error("pick: no sender succeeded")
-	} else {
-		logrus.WithField("mode", "pick").Warn("pick: no valid sender to attempt")
+	if !okOnce {
+		logrus.WithField("channels", names).Warn("pick mode: all senders failed")
 	}
 }
 
