@@ -1,4 +1,4 @@
-module sms-webhook
+module github.com/XingchengZhu/sms-webhook
 
 go 1.20
 
