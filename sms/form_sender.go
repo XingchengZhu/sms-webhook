@@ -5,13 +5,14 @@ import (
     "io"
     "net/http"
     "net/url"
-    "strings"      // ← 你漏掉的
+    "strings"
     "time"
 
     "github.com/sirupsen/logrus"
 )
 
 type FormSender struct {
+    name         string
     URL          string
     CodeField    string
     PhoneField   string
@@ -19,6 +20,19 @@ type FormSender struct {
     CodeValue    string
     Client       *http.Client
 }
+
+func NewFormSender(name, url, codeField, phoneField, contentField, codeValue string) *FormSender {
+    return &FormSender{
+        name:         name,
+        URL:          url,
+        CodeField:    codeField,
+        PhoneField:   phoneField,
+        ContentField: contentField,
+        CodeValue:    codeValue,
+    }
+}
+
+func (s *FormSender) Name() string { return s.name }
 
 func (s *FormSender) Send(target, content string) error {
     form := url.Values{}
@@ -34,25 +48,26 @@ func (s *FormSender) Send(target, content string) error {
     }
     req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-    client := s.Client
-    if client == nil {
-        client = &http.Client{Timeout: 5 * time.Second}
+    c := s.Client
+    if c == nil {
+        c = &http.Client{Timeout: 5 * time.Second}
     }
 
-    resp, err := client.Do(req)
+    resp, err := c.Do(req)
     if err != nil {
         return err
     }
     defer resp.Body.Close()
+    rb, _ := io.ReadAll(resp.Body)
 
-    b, _ := io.ReadAll(resp.Body)
     logrus.WithFields(logrus.Fields{
+        "sender": s.name,
         "status": resp.StatusCode,
-        "resp":   string(b),
+        "resp":   string(rb),
     }).Info("form sms response")
 
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-        return fmt.Errorf("form sms: unexpected status %d", resp.StatusCode)
+        return fmt.Errorf("form sms: bad status %d", resp.StatusCode)
     }
     return nil
 }

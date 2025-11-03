@@ -1,4 +1,3 @@
-// sms/json_sender.go
 package sms
 
 import (
@@ -20,11 +19,7 @@ type JSONSender struct {
 }
 
 func NewJSONSender(name, url, code string) *JSONSender {
-    return &JSONSender{
-        name: name,
-        URL:  url,
-        Code: code,
-    }
+    return &JSONSender{name: name, URL: url, Code: code}
 }
 
 func (s *JSONSender) Name() string { return s.name }
@@ -36,7 +31,7 @@ type jsonPayload struct {
 }
 
 func (s *JSONSender) Send(target, content string) error {
-    body, err := json.Marshal(jsonPayload{
+    b, err := json.Marshal(jsonPayload{
         Code:    s.Code,
         Target:  target,
         Content: content,
@@ -45,28 +40,28 @@ func (s *JSONSender) Send(target, content string) error {
         return err
     }
 
-    req, err := http.NewRequest(http.MethodPost, s.URL, bytes.NewReader(body))
+    req, err := http.NewRequest(http.MethodPost, s.URL, bytes.NewReader(b))
     if err != nil {
         return err
     }
     req.Header.Set("Content-Type", "application/json")
 
-    client := s.Client
-    if client == nil {
-        client = &http.Client{Timeout: 5 * time.Second}
+    c := s.Client
+    if c == nil {
+        c = &http.Client{Timeout: 5 * time.Second}
     }
 
-    resp, err := client.Do(req)
+    resp, err := c.Do(req)
     if err != nil {
         return err
     }
     defer resp.Body.Close()
-    b, _ := io.ReadAll(resp.Body)
+    rb, _ := io.ReadAll(resp.Body)
 
     logrus.WithFields(logrus.Fields{
         "sender": s.name,
         "status": resp.StatusCode,
-        "resp":   string(b),
+        "resp":   string(rb),
     }).Info("json sms response")
 
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {

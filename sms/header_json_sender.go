@@ -1,4 +1,3 @@
-// sms/header_json_sender.go
 package sms
 
 import (
@@ -13,21 +12,34 @@ import (
 )
 
 type HeaderJSONSender struct {
+    name      string
     URL       string
     Code      string
     APIKey    string
-    HeaderKey string // 比如 "X-API-KEY"
+    HeaderKey string
     Client    *http.Client
 }
 
-type headerJSONPayload struct {
+func NewHeaderJSONSender(name, url, code, apiKey, headerKey string) *HeaderJSONSender {
+    return &HeaderJSONSender{
+        name:      name,
+        URL:       url,
+        Code:      code,
+        APIKey:    apiKey,
+        HeaderKey: headerKey,
+    }
+}
+
+func (s *HeaderJSONSender) Name() string { return s.name }
+
+type headerPayload struct {
     Code    string `json:"code"`
-    Mobile  string `json:"mobile"`  // 有的叫 mobile
+    Mobile  string `json:"mobile"`
     Content string `json:"content"`
 }
 
 func (s *HeaderJSONSender) Send(target, content string) error {
-    body, err := json.Marshal(headerJSONPayload{
+    b, err := json.Marshal(headerPayload{
         Code:    s.Code,
         Mobile:  target,
         Content: content,
@@ -36,7 +48,7 @@ func (s *HeaderJSONSender) Send(target, content string) error {
         return err
     }
 
-    req, err := http.NewRequest(http.MethodPost, s.URL, bytes.NewReader(body))
+    req, err := http.NewRequest(http.MethodPost, s.URL, bytes.NewReader(b))
     if err != nil {
         return err
     }
@@ -45,25 +57,26 @@ func (s *HeaderJSONSender) Send(target, content string) error {
         req.Header.Set(s.HeaderKey, s.APIKey)
     }
 
-    client := s.Client
-    if client == nil {
-        client = &http.Client{Timeout: 5 * time.Second}
+    c := s.Client
+    if c == nil {
+        c = &http.Client{Timeout: 5 * time.Second}
     }
 
-    resp, err := client.Do(req)
+    resp, err := c.Do(req)
     if err != nil {
         return err
     }
     defer resp.Body.Close()
-    b, _ := io.ReadAll(resp.Body)
+    rb, _ := io.ReadAll(resp.Body)
 
     logrus.WithFields(logrus.Fields{
+        "sender": s.name,
         "status": resp.StatusCode,
-        "resp":   string(b),
+        "resp":   string(rb),
     }).Info("header json sms response")
 
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-        return fmt.Errorf("header json sms: unexpected status %d", resp.StatusCode)
+        return fmt.Errorf("header json sms: bad status %d", resp.StatusCode)
     }
     return nil
 }

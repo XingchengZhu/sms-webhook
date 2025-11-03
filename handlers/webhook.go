@@ -1,4 +1,3 @@
-// handlers/webhook.go
 package handlers
 
 import (
@@ -19,39 +18,38 @@ func WebhookHandler(cfg config.Config, manager *sms.Manager) http.HandlerFunc {
             return
         }
 
-        body, err := io.ReadAll(r.Body)
+        b, err := io.ReadAll(r.Body)
         if err != nil {
             http.Error(w, "read body error", http.StatusInternalServerError)
             return
         }
         defer r.Body.Close()
 
-        raw := string(body)
+        raw := string(b)
         logrus.WithField("body", raw).Debug("received webhook")
 
-        // 可能是多条告警
-        chunks := strings.Split(raw, "\n\n")
-
-        for _, chunk := range chunks {
-            if strings.TrimSpace(chunk) == "" {
+        parts := strings.Split(raw, "\n\n")
+        for _, p := range parts {
+            p = strings.TrimSpace(p)
+            if p == "" {
                 continue
             }
 
-            // 1) 拿短信内容
-            summary := extractSummary(chunk)
+            // 1. 取描述
+            summary := extractSummary(p)
             if summary == "" {
                 summary = "No summary provided"
             }
 
-            // 2) 看有没有指定渠道
-            names := sms.ParseProvidersFromAlert(chunk)
-
-            if len(names) == 0 {
-                // 没指定，按配置发
+            // 2. 看有没有写渠道
+            chs := sms.ParseChannels(p)
+            if len(chs) == 0 {
                 manager.SendBroadcast(summary, "")
             } else {
-                manager.SendTo(names, summary, "")
+                manager.SendTo(chs, summary, "")
             }
+
+            logrus.WithField("content", summary).Info("SMS processed")
         }
 
         w.WriteHeader(http.StatusOK)

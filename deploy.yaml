@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: sms-webhook
-        image: 10.29.230.150:31381/library/sms-test:20251031-1
+        image: 10.29.230.150:31381/library/sms-test:20251103-1
         ports:
         - containerPort: 8080
         env:

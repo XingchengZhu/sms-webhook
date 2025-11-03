@@ -10,14 +10,15 @@ type Config struct {
     Port         string
     LogLevel     logrus.Level
 
-    // 老的单通道配置（保持兼容）
+    // 老的单通道配置（兼容现在这版）
     SMSAPIURL    string
     SMSCode      string
     SMSTarget    string
 
-    // 新的多通道配置（可选）
-    SMSProvidersJSON string // JSON 字符串，数组
-    // 发送模式：broadcast | pick | both
+    // 新的：一次性配多条通道，用 JSON
+    SMSProvidersJSON string // 环境变量：SMS_PROVIDERS_JSON
+
+    // 发法：broadcast（默认）/ pick
     SMSSendMode      string
 }
 
@@ -28,7 +29,7 @@ func LoadConfig() Config {
         SMSAPIURL:        getEnv("SMS_API_URL", ""),
         SMSCode:          getEnv("SMS_CODE", ""),
         SMSTarget:        getEnv("SMS_TARGET", ""),
-        SMSProvidersJSON: getEnv("SMS_PROVIDERS_JSON", ""),   // 新的
+        SMSProvidersJSON: getEnv("SMS_PROVIDERS_JSON", ""),
         SMSSendMode:      getEnv("SMS_SEND_MODE", "broadcast"),
     }
 }

@@ -1,4 +1,3 @@
-// sms/manager.go
 package sms
 
 import (
@@ -15,20 +14,18 @@ type ProviderConfig struct {
     Code         string `json:"code"`
     Target       string `json:"target"`
 
-    // for header-json
     APIKey    string `json:"api_key"`
     HeaderKey string `json:"header_key"`
 
-    // for form
     PhoneField   string `json:"phone_field"`
     ContentField string `json:"content_field"`
     CodeField    string `json:"code_field"`
 }
 
 type Manager struct {
-    senders   map[string]Sender
+    senders       map[string]Sender
     defaultTarget string
-    sendMode  string // broadcast | pick
+    sendMode      string
 }
 
 func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string) *Manager {
@@ -38,11 +35,10 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
         sendMode:      sendMode,
     }
 
-    // 1) 如果有 json 配置，先解析
     if jsonStr != "" {
         var cfgs []ProviderConfig
         if err := json.Unmarshal([]byte(jsonStr), &cfgs); err != nil {
-            logrus.WithError(err).Error("failed to parse SMS_PROVIDERS_JSON")
+            logrus.WithError(err).Error("parse SMS_PROVIDERS_JSON failed")
         } else {
             for _, c := range cfgs {
                 s := buildSenderFromConfig(c)
@@ -53,7 +49,6 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
         }
     }
 
-    // 2) 如果啥都没有，又给了 fallback，就加进去
     if len(m.senders) == 0 && fallback != nil {
         m.senders[fallback.Name()] = fallback
     }
@@ -61,52 +56,62 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
     logrus.WithFields(logrus.Fields{
         "senders": m.list(),
         "mode":    m.sendMode,
-    }).Info("sms manager initialized")
+    }).Info("sms manager inited")
 
     return m
 }
 
 func buildSenderFromConfig(c ProviderConfig) Sender {
     switch c.Kind {
-    case "json", "":
-        return NewJSONSender(c.Name, c.URL, c.Code)
     case "form":
-        return NewFormSender(c) // 你要写一个 NewFormSender
+        return NewFormSender(c.Name, c.URL,
+            firstNonEmpty(c.CodeField, "code"),
+            firstNonEmpty(c.PhoneField, "target"),
+            firstNonEmpty(c.ContentField, "content"),
+            c.Code,
+        )
     case "header-json":
-        return NewHeaderJSONSender(c) // 你要写一个 NewHeaderJSONSender
+        return NewHeaderJSONSender(c.Name, c.URL, c.Code, c.APIKey, firstNonEmpty(c.HeaderKey, "X-API-KEY"))
+    case "json", "":
+        fallthrough
     default:
-        logrus.WithField("kind", c.Kind).Warn("unknown sms kind")
-        return nil
+        return NewJSONSender(c.Name, c.URL, c.Code)
     }
 }
 
-// list just for log
+func firstNonEmpty(vals ...string) string {
+    for _, v := range vals {
+        if v != "" {
+            return v
+        }
+    }
+    return ""
+}
+
 func (m *Manager) list() []string {
-    names := make([]string, 0, len(m.senders))
-    for name := range m.senders {
-        names = append(names, name)
+    out := make([]string, 0, len(m.senders))
+    for k := range m.senders {
+        out = append(out, k)
     }
-    return names
+    return out
 }
 
-// SendBroadcast: 发给所有人
-func (m *Manager) SendBroadcast(content string, targetOverride string) {
-    target := targetOverride
-    if target == "" {
-        target = m.defaultTarget
+func (m *Manager) SendBroadcast(content, target string) {
+    tgt := target
+    if tgt == "" {
+        tgt = m.defaultTarget
     }
     for name, s := range m.senders {
-        if err := s.Send(target, content); err != nil {
-            logrus.WithError(err).WithField("sender", name).Error("broadcast sms failed")
+        if err := s.Send(tgt, content); err != nil {
+            logrus.WithError(err).WithField("sender", name).Error("broadcast failed")
         }
     }
 }
 
-// SendTo: 发给指定的那几个
-func (m *Manager) SendTo(names []string, content string, targetOverride string) {
-    target := targetOverride
-    if target == "" {
-        target = m.defaultTarget
+func (m *Manager) SendTo(names []string, content, target string) {
+    tgt := target
+    if tgt == "" {
+        tgt = m.defaultTarget
     }
     for _, name := range names {
         s, ok := m.senders[name]
@@ -114,29 +119,28 @@ func (m *Manager) SendTo(names []string, content string, targetOverride string) 
             logrus.WithField("sender", name).Warn("sender not found")
             continue
         }
-        if err := s.Send(target, content); err != nil {
-            logrus.WithError(err).WithField("sender", name).Error("send sms failed")
+        if err := s.Send(tgt, content); err != nil {
+            logrus.WithError(err).WithField("sender", name).Error("send failed")
         }
     }
 }
 
-// ParseProvidersFromAlert: 从告警文本里解析你想要的通道
-// 例如某一行是：渠道: json1,header1
-func ParseProvidersFromAlert(alertText string) []string {
+// 从告警文本里解析渠道: xxx,yyy
+func ParseChannels(alertText string) []string {
     lines := strings.Split(alertText, "\n")
     for _, line := range lines {
         line = strings.TrimSpace(line)
         if strings.HasPrefix(line, "渠道:") || strings.HasPrefix(line, "channel:") {
             v := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "渠道:"), "channel:"))
             parts := strings.Split(v, ",")
-            res := make([]string, 0, len(parts))
+            out := make([]string, 0, len(parts))
             for _, p := range parts {
                 p = strings.TrimSpace(p)
                 if p != "" {
-                    res = append(res, p)
+                    out = append(out, p)
                 }
             }
-            return res
+            return out
         }
     }
     return nil
