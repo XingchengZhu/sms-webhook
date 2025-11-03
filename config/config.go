@@ -1,51 +1,60 @@
 package config
 
 import (
-    "os"
+	"os"
 
-    "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 type Config struct {
-    Port         string
-    LogLevel     logrus.Level
+	// http
+	Port     string
+	LogLevel logrus.Level
 
-    // 兼容单通道的老配置
-    SMSAPIURL    string
-    SMSCode      string
-    SMSTarget    string
+	// 老的单通道写法
+	SMSAPIURL    string
+	SMSCode      string
+	SMSTarget    string
+	SMSProvider  string // json | form | header-json
+	SMSAPIKey    string
+	SMSHeaderKey string
 
-    // 多通道的 JSON 配置
-    SMSProvidersJSON string // 环境变量：SMS_PROVIDERS_JSON
-
-    // 发法：pick（默认）/ broadcast
-    SMSSendMode      string
+	// 新的多通道写法
+	SMSSendMode      string // pick(默认) | broadcast
+	SMSProvidersJSON string // JSON 数组
 }
 
 func LoadConfig() Config {
-    return Config{
-        Port:             getEnv("PORT", "8080"),
-        LogLevel:         getLogLevel(getEnv("LOG_LEVEL", "info")),
-        SMSAPIURL:        getEnv("SMS_API_URL", ""),
-        SMSCode:          getEnv("SMS_CODE", ""),
-        SMSTarget:        getEnv("SMS_TARGET", ""),
-        SMSProvidersJSON: getEnv("SMS_PROVIDERS_JSON", ""),
-        // 这里把默认从 broadcast 改成 pick
-        SMSSendMode:      getEnv("SMS_SEND_MODE", "pick"),
-    }
+	return Config{
+		Port:     getEnv("PORT", "8080"),
+		LogLevel: getLogLevel(getEnv("LOG_LEVEL", "info")),
+
+		// 老的单通道
+		SMSAPIURL:    getEnv("SMS_API_URL", "http://fake-sms.sms-webhook.svc.cluster.local:9999/json"),
+		SMSCode:      getEnv("SMS_CODE", "ALERT_CODE"),
+		SMSTarget:    getEnv("SMS_TARGET", "15222222222"),
+		SMSProvider:  getEnv("SMS_PROVIDER", "json"),
+		SMSAPIKey:    getEnv("SMS_API_KEY", ""),
+		SMSHeaderKey: getEnv("SMS_HEADER_KEY", "X-API-KEY"),
+
+		// 新的多通道，默认就是只发一条
+		SMSSendMode:      getEnv("SMS_SEND_MODE", "pick"),
+		SMSProvidersJSON: getEnv("SMS_PROVIDERS_JSON", ""),
+	}
 }
 
-func getEnv(key, def string) string {
-    if v := os.Getenv(key); v != "" {
-        return v
-    }
-    return def
+func getEnv(key, defaultValue string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultValue
+	}
+	return v
 }
 
 func getLogLevel(level string) logrus.Level {
-    lvl, err := logrus.ParseLevel(level)
-    if err != nil {
-        return logrus.InfoLevel
-    }
-    return lvl
+	l, err := logrus.ParseLevel(level)
+	if err != nil {
+		return logrus.InfoLevel
+	}
+	return l
 }

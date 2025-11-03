@@ -1,70 +1,74 @@
 package handlers
 
 import (
-    "io"
-    "net/http"
-    "strings"
+	"io"
+	"net/http"
+	"strings"
 
-    "sms-webhook/config"
-    "sms-webhook/sms"
+	"github.com/sirupsen/logrus"
 
-    "github.com/sirupsen/logrus"
+	"github.com/XingchengZhu/sms-webhook/config"
+	"github.com/XingchengZhu/sms-webhook/sms"
 )
 
-func WebhookHandler(cfg config.Config, manager *sms.Manager) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodPost {
-            http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-            return
-        }
+// /webhook 的入口
+func WebhookHandler(cfg config.Config, mgr *sms.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
-        b, err := io.ReadAll(r.Body)
-        if err != nil {
-            http.Error(w, "read body error", http.StatusInternalServerError)
-            return
-        }
-        defer r.Body.Close()
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body error", http.StatusInternalServerError)
+			return
+		}
+		defer r.Body.Close()
 
-        raw := string(b)
-        logrus.WithField("body", raw).Debug("received webhook")
+		raw := string(body)
+		logrus.WithField("body", raw).Debug("received webhook")
 
-        parts := strings.Split(raw, "\n\n")
-        for _, p := range parts {
-            p = strings.TrimSpace(p)
-            if p == "" {
-                continue
-            }
+		// 支持一次发多段：用空行分开
+		chunks := strings.Split(raw, "\n\n")
+		for _, chunk := range chunks {
+			chunk = strings.TrimSpace(chunk)
+			if chunk == "" {
+				continue
+			}
 
-            // 1. 取描述
-            summary := extractSummary(p)
-            if summary == "" {
-                summary = "No summary provided"
-            }
+			// 1. 取描述
+			desc := parseDescription(chunk)
+			if desc == "" {
+				desc = "No summary provided"
+			}
 
-            // 2. 看有没有写渠道
-            chs := sms.ParseChannels(p)
-            if len(chs) == 0 {
-                // ✅ 改成“按当前模式发”，而不是写死 broadcast
-                manager.SendDefault(summary, "")
-            } else {
-                manager.SendTo(chs, summary, "")
-            }
+			// 2. 看有没有写渠道
+			channels := sms.ParseChannels(chunk)
 
-            logrus.WithField("content", summary).Info("SMS processed")
-        }
+			if len(channels) > 0 {
+				// 显式点名渠道
+				mgr.SendTo(channels, desc, cfg.SMSTarget)
+			} else {
+				// 没点名 → 用当前模式（默认 pick，只发一条）
+				mgr.SendDefault(desc, cfg.SMSTarget)
+			}
 
-        w.WriteHeader(http.StatusOK)
-        w.Write([]byte("Alert received and SMS sent"))
-    }
+			logrus.WithField("content", desc).Info("SMS processed")
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Alert received and SMS sent"))
+	}
 }
 
-func extractSummary(s string) string {
-    lines := strings.Split(s, "\n")
-    for _, line := range lines {
-        line = strings.TrimSpace(line)
-        if strings.HasPrefix(line, "描述: ") {
-            return strings.TrimSpace(strings.TrimPrefix(line, "描述: "))
-        }
-    }
-    return ""
+func parseDescription(s string) string {
+	lines := strings.Split(s, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "描述:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "描述:"))
+		}
+	}
+	return ""
 }
