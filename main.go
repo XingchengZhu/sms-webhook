@@ -16,7 +16,7 @@ func main() {
     logrus.SetLevel(cfg.LogLevel)
     logrus.SetFormatter(&logrus.JSONFormatter{})
 
-    // 单通道 fallback（兼容你现在这版）
+    // 兼容：如果只给了一条 SMS_API_URL，就做成一个默认 sender
     var fallback sms.Sender
     if cfg.SMSAPIURL != "" {
         fallback = sms.NewJSONSender("default", cfg.SMSAPIURL, cfg.SMSCode)
@@ -31,6 +31,9 @@ func main() {
 
     http.HandleFunc("/webhook", handlers.WebhookHandler(cfg, manager))
 
-    logrus.WithField("port", cfg.Port).Info("server starting")
+    logrus.WithFields(logrus.Fields{
+        "port": cfg.Port,
+    }).Info("server starting")
+
     logrus.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
 }

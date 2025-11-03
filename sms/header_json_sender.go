@@ -57,12 +57,12 @@ func (s *HeaderJSONSender) Send(target, content string) error {
         req.Header.Set(s.HeaderKey, s.APIKey)
     }
 
-    c := s.Client
-    if c == nil {
-        c = &http.Client{Timeout: 5 * time.Second}
+    client := s.Client
+    if client == nil {
+        client = &http.Client{Timeout: 5 * time.Second}
     }
 
-    resp, err := c.Do(req)
+    resp, err := client.Do(req)
     if err != nil {
         return err
     }

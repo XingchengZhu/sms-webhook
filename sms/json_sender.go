@@ -31,7 +31,7 @@ type jsonPayload struct {
 }
 
 func (s *JSONSender) Send(target, content string) error {
-    b, err := json.Marshal(jsonPayload{
+    body, err := json.Marshal(jsonPayload{
         Code:    s.Code,
         Target:  target,
         Content: content,
@@ -40,28 +40,28 @@ func (s *JSONSender) Send(target, content string) error {
         return err
     }
 
-    req, err := http.NewRequest(http.MethodPost, s.URL, bytes.NewReader(b))
+    req, err := http.NewRequest(http.MethodPost, s.URL, bytes.NewReader(body))
     if err != nil {
         return err
     }
     req.Header.Set("Content-Type", "application/json")
 
-    c := s.Client
-    if c == nil {
-        c = &http.Client{Timeout: 5 * time.Second}
+    client := s.Client
+    if client == nil {
+        client = &http.Client{Timeout: 5 * time.Second}
     }
 
-    resp, err := c.Do(req)
+    resp, err := client.Do(req)
     if err != nil {
         return err
     }
     defer resp.Body.Close()
-    rb, _ := io.ReadAll(resp.Body)
+    respBody, _ := io.ReadAll(resp.Body)
 
     logrus.WithFields(logrus.Fields{
         "sender": s.name,
         "status": resp.StatusCode,
-        "resp":   string(rb),
+        "resp":   string(respBody),
     }).Info("json sms response")
 
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {

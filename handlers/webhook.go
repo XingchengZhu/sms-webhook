@@ -28,28 +28,29 @@ func WebhookHandler(cfg config.Config, manager *sms.Manager) http.HandlerFunc {
         raw := string(b)
         logrus.WithField("body", raw).Debug("received webhook")
 
+        // 一次请求里可能有多条告警，用空行分
         parts := strings.Split(raw, "\n\n")
-        for _, p := range parts {
-            p = strings.TrimSpace(p)
-            if p == "" {
+        for _, part := range parts {
+            part = strings.TrimSpace(part)
+            if part == "" {
                 continue
             }
 
-            // 1. 取描述
-            summary := extractSummary(p)
+            // 1. 抽内容
+            summary := extractSummary(part)
             if summary == "" {
                 summary = "No summary provided"
             }
 
-            // 2. 看有没有写渠道
-            chs := sms.ParseChannels(p)
-            if len(chs) == 0 {
+            // 2. 看有没有渠道
+            channels := sms.ParseChannels(part)
+            if len(channels) == 0 {
                 manager.SendBroadcast(summary, "")
             } else {
-                manager.SendTo(chs, summary, "")
+                manager.SendTo(channels, summary, "")
             }
 
-            logrus.WithField("content", summary).Info("SMS processed")
+            logrus.WithField("content", summary).Info("alert processed")
         }
 
         w.WriteHeader(http.StatusOK)

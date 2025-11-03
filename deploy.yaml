@@ -31,6 +31,39 @@ spec:
           value: "8080"
         - name: LOG_LEVEL
           value: "debug"
+        - name: SMS_SEND_MODE
+          value: "broadcast"
+        - name: SMS_PROVIDERS_JSON
+          value: |
+            [
+              {
+                "name": "json1",
+                "kind": "json",
+                "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/json1",
+                "code": "ALERT_CODE",
+                "target": "15222222222"
+              },
+              {
+                "name": "form1",
+                "kind": "form",
+                "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/form1",
+                "code": "FORM_CODE",
+                "target": "15222222222",
+                "phone_field": "phone",
+                "content_field": "msg",
+                "code_field": "code"
+              },
+              {
+                "name": "header1",
+                "kind": "header-json",
+                "url": "http://fake-sms.sms-webhook.svc.cluster.local:9999/header1",
+                "code": "HDR_CODE",
+                "target": "15222222222",
+                "api_key": "abc123",
+                "header_key": "X-API-KEY"
+              }
+            ]
+
         resources:
           requests:
             memory: "200Mi"

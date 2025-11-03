@@ -35,6 +35,7 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
         sendMode:      sendMode,
     }
 
+    // 1) 解析多通道 JSON
     if jsonStr != "" {
         var cfgs []ProviderConfig
         if err := json.Unmarshal([]byte(jsonStr), &cfgs); err != nil {
@@ -49,6 +50,7 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
         }
     }
 
+    // 2) 完全没配多通道，就用老的单通道
     if len(m.senders) == 0 && fallback != nil {
         m.senders[fallback.Name()] = fallback
     }
@@ -56,7 +58,7 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
     logrus.WithFields(logrus.Fields{
         "senders": m.list(),
         "mode":    m.sendMode,
-    }).Info("sms manager inited")
+    }).Info("sms manager initialized")
 
     return m
 }
@@ -64,14 +66,22 @@ func NewManager(jsonStr string, fallback Sender, defaultTarget, sendMode string)
 func buildSenderFromConfig(c ProviderConfig) Sender {
     switch c.Kind {
     case "form":
-        return NewFormSender(c.Name, c.URL,
+        return NewFormSender(
+            c.Name,
+            c.URL,
             firstNonEmpty(c.CodeField, "code"),
             firstNonEmpty(c.PhoneField, "target"),
             firstNonEmpty(c.ContentField, "content"),
             c.Code,
         )
     case "header-json":
-        return NewHeaderJSONSender(c.Name, c.URL, c.Code, c.APIKey, firstNonEmpty(c.HeaderKey, "X-API-KEY"))
+        return NewHeaderJSONSender(
+            c.Name,
+            c.URL,
+            c.Code,
+            c.APIKey,
+            firstNonEmpty(c.HeaderKey, "X-API-KEY"),
+        )
     case "json", "":
         fallthrough
     default:
@@ -79,10 +89,10 @@ func buildSenderFromConfig(c ProviderConfig) Sender {
     }
 }
 
-func firstNonEmpty(vals ...string) string {
-    for _, v := range vals {
-        if v != "" {
-            return v
+func firstNonEmpty(xs ...string) string {
+    for _, x := range xs {
+        if x != "" {
+            return x
         }
     }
     return ""
@@ -90,8 +100,8 @@ func firstNonEmpty(vals ...string) string {
 
 func (m *Manager) list() []string {
     out := make([]string, 0, len(m.senders))
-    for k := range m.senders {
-        out = append(out, k)
+    for name := range m.senders {
+        out = append(out, name)
     }
     return out
 }
@@ -103,7 +113,7 @@ func (m *Manager) SendBroadcast(content, target string) {
     }
     for name, s := range m.senders {
         if err := s.Send(tgt, content); err != nil {
-            logrus.WithError(err).WithField("sender", name).Error("broadcast failed")
+            logrus.WithError(err).WithField("sender", name).Error("broadcast sms failed")
         }
     }
 }
@@ -120,12 +130,12 @@ func (m *Manager) SendTo(names []string, content, target string) {
             continue
         }
         if err := s.Send(tgt, content); err != nil {
-            logrus.WithError(err).WithField("sender", name).Error("send failed")
+            logrus.WithError(err).WithField("sender", name).Error("send sms failed")
         }
     }
 }
 
-// 从告警文本里解析渠道: xxx,yyy
+// 从告警文本里解析 “渠道: xxx,yyy”
 func ParseChannels(alertText string) []string {
     lines := strings.Split(alertText, "\n")
     for _, line := range lines {
@@ -133,14 +143,14 @@ func ParseChannels(alertText string) []string {
         if strings.HasPrefix(line, "渠道:") || strings.HasPrefix(line, "channel:") {
             v := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "渠道:"), "channel:"))
             parts := strings.Split(v, ",")
-            out := make([]string, 0, len(parts))
+            res := make([]string, 0, len(parts))
             for _, p := range parts {
                 p = strings.TrimSpace(p)
                 if p != "" {
-                    out = append(out, p)
+                    res = append(res, p)
                 }
             }
-            return out
+            return res
         }
     }
     return nil

@@ -48,22 +48,22 @@ func (s *FormSender) Send(target, content string) error {
     }
     req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-    c := s.Client
-    if c == nil {
-        c = &http.Client{Timeout: 5 * time.Second}
+    client := s.Client
+    if client == nil {
+        client = &http.Client{Timeout: 5 * time.Second}
     }
 
-    resp, err := c.Do(req)
+    resp, err := client.Do(req)
     if err != nil {
         return err
     }
     defer resp.Body.Close()
-    rb, _ := io.ReadAll(resp.Body)
+    respBody, _ := io.ReadAll(resp.Body)
 
     logrus.WithFields(logrus.Fields{
         "sender": s.name,
         "status": resp.StatusCode,
-        "resp":   string(rb),
+        "resp":   string(respBody),
     }).Info("form sms response")
 
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {
