@@ -68,7 +68,13 @@ spec:
                 "phone_field": "target",
                 "content_field": "content",
                 "code_field": "code"
-              }
+              },
+              {
+              "name": "feishu",
+              "kind": "feishu",
+              "url": "https://open.feishu.cn/open-apis/bot/v2/hook/d46d8ce4-e298-4894-b5da-37ad2613104c",
+              "secret": "T1dgjnnwepkB2JrlhawRke"
+            }
             ]
 ---
 apiVersion: v1

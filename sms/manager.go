@@ -9,15 +9,16 @@ import (
 
 type ProviderConfig struct {
 	Name         string `json:"name"`
-	Kind         string `json:"kind"` // json | form | header-json
+	Kind         string `json:"kind"` // json | form | header-json | feishu
 	URL          string `json:"url"`
 	Code         string `json:"code"`
 	Target       string `json:"target"`
-	APIKey       string `json:"api_key"`
+	APIKey       string `json:"api_key"`   // 兼容旧字段
 	HeaderKey    string `json:"header_key"`
 	PhoneField   string `json:"phone_field"`
 	ContentField string `json:"content_field"`
 	CodeField    string `json:"code_field"`
+	Secret       string `json:"secret"` // 新增：飞书签名用
 }
 
 // Manager 管一堆 sender
@@ -102,6 +103,14 @@ func buildSenderFromConfig(c ProviderConfig) Sender {
 			c.APIKey,
 			firstNonEmpty(c.HeaderKey, "X-API-KEY"),
 		)
+	case "feishu":
+		// 飞书签名 secret 可用新字段 secret；兼容 api_key
+		secret := firstNonEmpty(c.Secret, c.APIKey)
+		return NewFeishuSender(
+			firstNonEmpty(c.Name, "feishu"),
+			c.URL,
+			secret,
+		)
 	case "json", "":
 		fallthrough
 	default:
@@ -126,7 +135,7 @@ func (m *Manager) list() []string {
 	return out
 }
 
-// 广播所有（全量广播）
+// 广播所有
 func (m *Manager) SendBroadcast(content, target string) {
 	tgt := target
 	if tgt == "" {
@@ -155,31 +164,14 @@ func (m *Manager) SendDefault(content, target string) {
 	m.SendTo([]string{m.primary}, content, target)
 }
 
-// SendTo: 对指定 names 发送
-// - broadcast: 给 names 里所有 sender 都发
-// - pick:      按 names 顺序逐个尝试，首个成功就停
 func (m *Manager) SendTo(names []string, content, target string) {
 	tgt := target
 	if tgt == "" {
 		tgt = m.defaultTarget
 	}
 
-	if m.sendMode == "broadcast" {
-		for _, name := range names {
-			s, ok := m.senders[name]
-			if !ok {
-				logrus.WithField("sender", name).Warn("sender not found")
-				continue
-			}
-			if err := s.Send(tgt, content); err != nil {
-				logrus.WithError(err).WithField("sender", name).Error("send failed")
-			}
-		}
-		return
-	}
+	sentOK := false
 
-	// pick 模式：逐个尝试，成功即停
-	var okOnce bool
 	for _, name := range names {
 		s, ok := m.senders[name]
 		if !ok {
@@ -187,15 +179,19 @@ func (m *Manager) SendTo(names []string, content, target string) {
 			continue
 		}
 		if err := s.Send(tgt, content); err != nil {
-			logrus.WithError(err).WithField("sender", name).Error("send failed, try next")
+			logrus.WithError(err).WithField("sender", name).Error("send failed")
 			continue
 		}
-		logrus.WithField("sender", name).Info("pick mode: first success, stop")
-		okOnce = true
-		break
+		// 成功一次
+		sentOK = true
+		if m.sendMode == "pick" {
+			// 首个成功就停
+			return
+		}
 	}
-	if !okOnce {
-		logrus.WithField("channels", names).Warn("pick mode: all senders failed")
+
+	if !sentOK && m.sendMode == "pick" {
+		logrus.Warn("no sender succeeded in pick mode")
 	}
 }
 
